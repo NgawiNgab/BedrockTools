@@ -92,19 +92,6 @@ void PlayerCoordsModule::onFrame() {
     }
     submitDrawCommands(moduleId, cmds);
 }
-    PLModMenu_DrawCommand txtCmd = {};
-    txtCmd.type = PL_DRAW_TEXT;
-    txtCmd.x = boxX;
-    txtCmd.y = boxY;
-    txtCmd.w = boxW;
-    txtCmd.h = boxH;
-    txtCmd.color = 0xFFFFFFFF; 
-    txtCmd.size = m_size;
-    txtCmd.text = text.c_str();
-    cmds.push_back(txtCmd);
-
-    submitDrawCommands(moduleId, cmds);
-}
 
 void PlayerCoordsModule::loadConfig(const nlohmann::json& j) {
     Module::loadConfig(j);
