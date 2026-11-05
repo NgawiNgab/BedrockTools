@@ -26,4 +26,5 @@ private:
     float m_size = 40.0f;
     bool m_background = false;
     float m_backgroundOpacity = 0.5f;
+    bool m_showConversion = true;
 };
