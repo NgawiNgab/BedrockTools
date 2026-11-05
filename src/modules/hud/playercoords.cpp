@@ -2,13 +2,65 @@
 #include "modules/ModuleRegistry.hpp"
 #include <bedrocktools/events/EventBus.hpp>
 #include <bedrocktools/sdk/world/Actor.hpp>
+#include <bedrocktools/sdk/client/ClientInstance.hpp>
+#include <pl/Logger.hpp>
 #include <cmath>
+#include <cstring>
 #include <algorithm>
+#include <string>
+#include <vector>
 
 static PlayerCoordsModule* g_coordsMod = nullptr;
 
+// ---- dimension detection (0 unknown, 1 overworld, 2 nether, 3 end) ----
+static int g_dim = 0;
+
+static int detectDimension(bedrocktools::sdk::Player* player) {
+    auto* dim = player->dimension();
+    if (!dim) return 0;
+    void** vtable = *reinterpret_cast<void***>(dim);
+    if (!vtable) return 0;
+    const char* typeinfo = reinterpret_cast<const char*>(vtable[-1]);
+    if (!typeinfo) return 0;
+    const char* name = *reinterpret_cast<const char* const*>(typeinfo + 8);
+    if (!name) return 0;
+    if (std::strstr(name, "Nether")) return 2;
+    if (std::strstr(name, "TheEnd")) return 3;
+    if (std::strstr(name, "Overworld")) return 1;
+    return 0;
+}
+
+// ---- test: watch 5 candidate "isInServer" flags in MinecraftGame ----
+struct GameFlag { const char* name; size_t off; int last; };
+static GameFlag g_flags[] = {
+    {"s50",  0x505,  -1}, {"s152", 0x502, -1}, {"s155", 0x358, -1},
+    {"s267", 0x1ca8, -1}, {"s378", 0x1c68, -1},
+};
+static std::string g_flagText;
+
+static void sampleGameFlags() {
+    auto* ci = bedrocktools::sdk::ClientInstance::current();
+    if (!ci) return;
+    auto* game = ci->minecraftGame();
+    if (!game) return;
+    static auto& log = pl::log::Logger::getOrCreate("NetherCoords");
+    std::string text;
+    for (auto& f : g_flags) {
+        int v = *reinterpret_cast<uint8_t*>(
+            reinterpret_cast<uintptr_t>(game) + f.off);
+        if (v != f.last) {
+            log.info("{} (+{:#x}) = {}", f.name, f.off, v);
+            f.last = v;
+        }
+        text += std::string(f.name) + ":" + std::to_string(v) + " ";
+    }
+    g_flagText = text;
+}
+
 static void s_coordsCallback(bedrocktools::sdk::Player* player) {
     if (!g_coordsMod || !g_coordsMod->enabled || !player) return;
+    g_dim = detectDimension(player);
+    sampleGameFlags();
     g_coordsMod->updateCoords(player->position());
 }
 
@@ -56,15 +108,23 @@ void PlayerCoordsModule::onFrame() {
     float px = m_currentPos.x, pz = m_currentPos.z;
 
     std::vector<std::string> lines;
-    lines.push_back("X: " + std::to_string((int)px) +
-                    " Y: " + std::to_string((int)m_currentPos.y) +
-                    " Z: " + std::to_string((int)pz));
+    lines.push_back("X: " + std::to_string(fl(px)) +
+                    " Y: " + std::to_string(fl(m_currentPos.y - 1.62f)) +
+                    " Z: " + std::to_string(fl(pz)));
     if (m_showConversion) {
-        lines.push_back("Nether: X " + std::to_string(fl(px / 8.0f)) +
-                        " Z " + std::to_string(fl(pz / 8.0f)));
-        lines.push_back("Overworld: X " + std::to_string(fl(px * 8.0f)) +
-                        " Z " + std::to_string(fl(pz * 8.0f)));
+        if (g_dim == 2) {
+            lines.push_back("Overworld: X " + std::to_string(fl(px * 8.0f)) +
+                            " Z " + std::to_string(fl(pz * 8.0f)));
+        } else if (g_dim == 1) {
+            lines.push_back("Nether: X " + std::to_string(fl(px / 8.0f)) +
+                            " Z " + std::to_string(fl(pz / 8.0f)));
+        } else if (g_dim == 3) {
+            lines.push_back("The End: no conversion");
+        } else {
+            lines.push_back("Dimension: unknown");
+        }
     }
+    if (!g_flagText.empty()) lines.push_back(g_flagText);
 
     float lineH = m_size + 8.0f;
     float boxW = 0.f;
@@ -101,6 +161,7 @@ void PlayerCoordsModule::loadConfig(const nlohmann::json& j) {
     if (j.contains("m_size")) m_size = j["m_size"].get<float>();
     if (j.contains("m_background")) m_background = j["m_background"].get<bool>();
     if (j.contains("m_backgroundOpacity")) m_backgroundOpacity = j["m_backgroundOpacity"].get<float>();
+    if (j.contains("m_showConversion")) m_showConversion = j["m_showConversion"].get<bool>();
 }
 
 void PlayerCoordsModule::saveConfig(nlohmann::json& j) {
@@ -111,4 +172,5 @@ void PlayerCoordsModule::saveConfig(nlohmann::json& j) {
     j["m_size"] = m_size;
     j["m_background"] = m_background;
     j["m_backgroundOpacity"] = m_backgroundOpacity;
+    j["m_showConversion"] = m_showConversion;
 }
