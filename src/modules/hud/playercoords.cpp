@@ -2,6 +2,8 @@
 #include "modules/ModuleRegistry.hpp"
 #include <bedrocktools/events/EventBus.hpp>
 #include <bedrocktools/sdk/world/Actor.hpp>
+#include <cmath>
+#include <algorithm>
 
 static PlayerCoordsModule* g_coordsMod = nullptr;
 
@@ -50,28 +52,46 @@ void PlayerCoordsModule::onDisable() {
 void PlayerCoordsModule::onFrame() {
     if (!enabled) return;
 
-    std::string text = "X: " + std::to_string((int)m_currentPos.x) +
-                       " Y: " + std::to_string((int)m_currentPos.y) +
-                       " Z: " + std::to_string((int)m_currentPos.z);
+    auto fl = [](float v) { return (long long)std::floor(v); };
+    float px = m_currentPos.x, pz = m_currentPos.z;
 
-    std::vector<PLModMenu_DrawCommand> cmds;
-    float boxW = calcTextWidth(text, m_size) + 12.0f;
-    float boxH = m_size + 8.0f;
-    float boxX = hudPosX;
-    float boxY = hudPosY;
-
-    if (m_background) {
-        PLModMenu_DrawCommand bgCmd = {};
-        bgCmd.type = PL_DRAW_RECT_FILLED;
-        bgCmd.x = boxX;
-        bgCmd.y = boxY;
-        bgCmd.w = boxW;
-        bgCmd.h = boxH;
-        int alpha = (int)(m_backgroundOpacity * 255.0f);
-        bgCmd.color = (alpha << 24) | 0x000000;
-        cmds.push_back(bgCmd);
+    std::vector<std::string> lines;
+    lines.push_back("X: " + std::to_string((int)px) +
+                    " Y: " + std::to_string((int)m_currentPos.y) +
+                    " Z: " + std::to_string((int)pz));
+    if (m_showConversion) {
+        lines.push_back("Nether: X " + std::to_string(fl(px / 8.0f)) +
+                        " Z " + std::to_string(fl(pz / 8.0f)));
+        lines.push_back("Overworld: X " + std::to_string(fl(px * 8.0f)) +
+                        " Z " + std::to_string(fl(pz * 8.0f)));
     }
 
+    float lineH = m_size + 8.0f;
+    float boxW = 0.f;
+    for (auto& l : lines) boxW = std::max(boxW, calcTextWidth(l, m_size));
+    boxW += 12.0f;
+    float boxH = lineH * lines.size();
+
+    std::vector<PLModMenu_DrawCommand> cmds;
+    if (m_background) {
+        PLModMenu_DrawCommand bg = {};
+        bg.type = PL_DRAW_RECT_FILLED;
+        bg.x = hudPosX; bg.y = hudPosY; bg.w = boxW; bg.h = boxH;
+        bg.color = ((int)(m_backgroundOpacity * 255.0f) << 24);
+        cmds.push_back(bg);
+    }
+    for (size_t i = 0; i < lines.size(); ++i) {
+        PLModMenu_DrawCommand t = {};
+        t.type = PL_DRAW_TEXT;
+        t.x = hudPosX; t.y = hudPosY + lineH * i;
+        t.w = boxW; t.h = lineH;
+        t.color = 0xFFFFFFFF;
+        t.size = m_size;
+        t.text = lines[i].c_str();
+        cmds.push_back(t);
+    }
+    submitDrawCommands(moduleId, cmds);
+}
     PLModMenu_DrawCommand txtCmd = {};
     txtCmd.type = PL_DRAW_TEXT;
     txtCmd.x = boxX;
